@@ -1,1 +1,243 @@
 
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080808">
+  <title>The Last Chapter | Entry Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: #080808; color: #f4eee5;
+      font-family: Arial, sans-serif; display: grid; place-items: center;
+      padding: 22px;
+    }
+    .panel {
+      width: 100%; max-width: 440px; padding: 28px 22px;
+      background: #111; border: 1px solid #92743b;
+      border-radius: 12px; text-align: center;
+      box-shadow: 0 0 35px #000;
+    }
+    .eyebrow { color: #c8a65e; letter-spacing: 4px; font-size: 11px; }
+    h1 { font-family: Georgia, serif; font-size: 32px; margin: 14px 0 6px; }
+    .subtitle { color: #aaa; font-size: 12px; letter-spacing: 2px; }
+    .rule { height: 1px; background: #554426; margin: 24px 0; }
+    label { display: block; text-align: left; font-size: 12px; color: #c8a65e; margin: 15px 0 7px; }
+    input, button {
+      width: 100%; padding: 14px; border-radius: 6px;
+      font-size: 15px;
+    }
+    input { background: #080808; color: white; border: 1px solid #444; }
+    button {
+      border: 0; background: #c8a65e; color: #111;
+      font-weight: bold; cursor: pointer; margin-top: 14px;
+    }
+    button:disabled { opacity: .5; cursor: wait; }
+    #reader { width: 100%; overflow: hidden; border-radius: 8px; }
+    #reader video { border-radius: 8px; }
+    #result {
+      display: none; margin-top: 20px; padding: 18px 12px;
+      border: 1px solid #555; border-radius: 8px; overflow-wrap: anywhere;
+    }
+    #status { font-size: 20px; font-weight: bold; margin-bottom: 12px; }
+    #details { line-height: 1.8; font-size: 14px; }
+    .hint { color: #999; font-size: 12px; line-height: 1.6; margin-top: 18px; }
+    .gold { color: #c8a65e; }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <div class="eyebrow">CLASS OF 2026</div>
+    <h1>THE LAST CHAPTER</h1>
+    <div class="subtitle">FAREWELL AFTERPARTY · ENTRY</div>
+    <div class="rule"></div>
+
+    <label for="pin">ORGANIZER SCANNER PIN</label>
+    <input id="pin" type="password" placeholder="Enter private PIN"
+           autocomplete="off">
+    <button id="start">ACTIVATE CAMERA</button>
+
+    <div style="margin-top:22px" id="reader"></div>
+
+    <section id="result" aria-live="polite">
+      <div id="status"></div>
+      <div id="details"></div>
+      <button id="again">SCAN NEXT TICKET</button>
+    </section>
+
+    <p class="hint">
+      Scan each guest's original QR code. Wait for the result before
+      admitting them. A valid ticket can only be used once.
+      <br><span class="gold">THE LAST CHAPTER · 2026</span>
+    </p>
+  </main>
+
+<script>
+  const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyT8NSkSg6Om8Ml2zwN-1AFe6HYE0mXGeFCUixvY6s8IdO4l665W25P0X3Urd6cwUeQ/exec";
+
+  let scanner = null;
+  let busy = false;
+  let running = false;
+
+  const startButton = document.getElementById("start");
+  const againButton = document.getElementById("again");
+  const resultBox = document.getElementById("result");
+
+  function showResult(data) {
+    resultBox.style.display = "block";
+    const status = document.getElementById("status");
+    const details = document.getElementById("details");
+
+    status.textContent = data.message || "Unable to verify ticket";
+    status.style.color = data.ok ? "#65e69a" : "#ff6666";
+
+    details.replaceChildren();
+
+    if (data.name) {
+      const name = document.createElement("div");
+      name.textContent = "Guest: " + data.name;
+      details.appendChild(name);
+    }
+    if (data.ticketId) {
+      const id = document.createElement("div");
+      id.textContent = "Ticket ID: " + data.ticketId;
+      details.appendChild(id);
+    }
+    if (data.category) {
+      const category = document.createElement("div");
+      category.textContent = "Pass: " + data.category;
+      details.appendChild(category);
+    }
+  }
+
+  function verifyScannedToken(token) {
+    if (busy) return;
+    busy = true;
+    startButton.disabled = true;
+
+    if (scanner && running) {
+      scanner.pause(true);
+    }
+
+    showResult({ ok: false, message: "VERIFYING TICKET…" });
+
+    const pin = document.getElementById("pin").value.trim();
+
+    if (!pin) {
+      showResult({ ok: false, message: "ENTER SCANNER PIN" });
+      busy = false;
+      startButton.disabled = false;
+      if (scanner && running) scanner.resume();
+      return;
+    }
+
+    if (!WEB_APP_URL.startsWith("https://script.google.com/") ||
+        !WEB_APP_URL.endsWith("/exec")) {
+      showResult({ ok: false, message: "WEB APP URL NOT CONFIGURED" });
+      busy = false;
+      startButton.disabled = false;
+      if (scanner && running) scanner.resume();
+      return;
+    }
+
+    const callbackName = "ticketCallback";
+    const params = new URLSearchParams({
+      action: "verify",
+      token: token,
+      pin: pin,
+      callback: callbackName
+    });
+
+    let script = null;
+    let timeout = null;
+
+    function cleanup() {
+      if (timeout) clearTimeout(timeout);
+      if (script) script.remove();
+      delete window[callbackName];
+    }
+
+    window[callbackName] = function(data) {
+      cleanup();
+      showResult(data);
+      busy = false;
+      startButton.disabled = false;
+    };
+
+    script = document.createElement("script");
+    script.src = WEB_APP_URL + "?" + params.toString();
+    script.onerror = function() {
+      cleanup();
+      showResult({
+        ok: false,
+        message: "CONNECTION FAILED — CHECK INTERNET AND DEPLOYMENT"
+      });
+      busy = false;
+      startButton.disabled = false;
+    };
+
+    timeout = setTimeout(function() {
+      cleanup();
+      showResult({
+        ok: false,
+        message: "SERVER TIMEOUT — CHECK CONNECTION BEFORE ADMITTING"
+      });
+      busy = false;
+      startButton.disabled = false;
+    }, 15000);
+
+    document.head.appendChild(script);
+  }
+
+  startButton.addEventListener("click", async function() {
+    if (running) {
+      return;
+    }
+
+    if (!document.getElementById("pin").value.trim()) {
+      showResult({ ok: false, message: "ENTER SCANNER PIN FIRST" });
+      return;
+    }
+
+    if (typeof Html5Qrcode === "undefined") {
+      showResult({ ok: false, message: "SCANNER LIBRARY FAILED TO LOAD" });
+      return;
+    }
+
+    startButton.disabled = true;
+
+    try {
+      if (!scanner) scanner = new Html5Qrcode("reader");
+
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        function(decodedText) {
+          verifyScannedToken(decodedText);
+        },
+        function() {}
+      );
+
+      running = true;
+      startButton.textContent = "CAMERA ACTIVE";
+    } catch (error) {
+      showResult({
+        ok: false,
+        message: "CAMERA FAILED — ALLOW CAMERA ACCESS AND USE HTTPS"
+      });
+      startButton.disabled = false;
+    }
+  });
+
+  againButton.addEventListener("click", function() {
+    resultBox.style.display = "none";
+    busy = false;
+    startButton.disabled = false;
+    if (scanner && running) scanner.resume();
+  });
+</script>
+</body>
+</html>
