@@ -170,14 +170,14 @@
     script = document.createElement("script");
     script.src = WEB_APP_URL + "?" + params.toString();
     script.onerror = function() {
-      cleanup();
-      showResult({
-        ok: false,
-        message: "CONNECTION FAILED — CHECK INTERNET AND DEPLOYMENT"
-      });
-      busy = false;
-      startButton.disabled = false;
-    };
+  cleanup();
+  showResult({
+    ok: false,
+    message: "SCRIPT LOAD FAILED — Apps Script did not return a loadable response. Check deployment access and browser console."
+  });
+  busy = false;
+  startButton.disabled = false;
+};
 
     timeout = setTimeout(function() {
       cleanup();
